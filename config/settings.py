@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     whisper_model_size: str = "base"  # 改为模型名称：tiny, base, small, medium, large
     whisper_model_path: str = "model/whisper-base/small.pt"  # 新增：模型文件存放路径
     paraformer_model_path: str = "model/speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
+    sense_voice_model_path: str = "model/SenseVoiceSmall"
+    paraformer_streaming_model_path: str = "model/paraformer-streaming"
 
     # 音频配置
     sample_rate: float = 16000.0

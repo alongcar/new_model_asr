@@ -7,6 +7,7 @@ import asyncio
 import json
 import logging
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from typing import Dict, Optional
 
@@ -18,6 +19,8 @@ from config.settings import settings
 from asr_models.vosk_model import VoskModel
 from asr_models.whisper_model import WhisperModel
 from asr_models.paraformer_model import ParaformerModel
+from asr_models.sense_voice_model import SenseVoiceModel
+from asr_models.paraformer_streaming_model import ParaformerStreamingModel
 
 # 配置日志
 logging.basicConfig(
@@ -33,6 +36,8 @@ class MultiModelASRService:
         self.models: Dict[str, any] = {}
         self.sessions: Dict[str, Dict] = {}  # session_id -> {model_type, model_instance, session_data}
         self.session_lock = asyncio.Lock()
+        # 统一的线程池，用于执行所有模型的阻塞推理任务
+        self.executor = ThreadPoolExecutor(max_workers=settings.max_workers)
     
     async def initialize(self):
         """初始化所有模型"""
@@ -43,8 +48,7 @@ class MultiModelASRService:
             self.models["vosk"] = VoskModel(
                 model_path=settings.vosk_model_path,
                 sample_rate=settings.sample_rate,
-                hotwords=settings.hotwords,
-                max_workers=settings.max_workers
+                hotwords=settings.hotwords
             )
             self.models["vosk"].load_model()
             logger.info("Vosk模型初始化完成")
@@ -67,17 +71,41 @@ class MultiModelASRService:
         #     self.models["whisper"] = None
         
         # 初始化Paraformer模型
+        # try:
+        #     self.models["paraformer"] = ParaformerModel(
+        #         model_path=settings.paraformer_model_path,
+        #         sample_rate=settings.sample_rate,
+        #         hotwords=settings.hotwords
+        #     )
+        #     self.models["paraformer"].load_model()
+        #     logger.info("Paraformer模型初始化完成")
+        # except Exception as e:
+        #     logger.warning(f"Paraformer模型初始化失败: {e}")
+
+        # 初始化SenseVoice模型
         try:
-            self.models["paraformer"] = ParaformerModel(
-                model_path=settings.paraformer_model_path,
+            self.models["sense_voice"] = SenseVoiceModel(
+                model_path=settings.sense_voice_model_path,
                 sample_rate=settings.sample_rate,
                 hotwords=settings.hotwords
             )
-            self.models["paraformer"].load_model()
-            logger.info("Paraformer模型初始化完成")
+            self.models["sense_voice"].load_model()
+            logger.info("SenseVoice模型初始化完成")
         except Exception as e:
-            logger.error(f"Paraformer模型初始化失败: {e}")
-            self.models["paraformer"] = None
+            logger.warning(f"SenseVoice模型初始化失败: {e}")
+
+        # 初始化Paraformer Streaming模型
+        try:
+            self.models["paraformer_streaming"] = ParaformerStreamingModel(
+                model_path=settings.paraformer_streaming_model_path,
+                sample_rate=settings.sample_rate,
+                hotwords=settings.hotwords
+            )
+            self.models["paraformer_streaming"].load_model()
+            logger.info("Paraformer Streaming模型初始化完成")
+        except Exception as e:
+            logger.warning(f"Paraformer Streaming模型初始化失败: {e}")
+        #     self.models["paraformer"] = None
     
     async def create_session(self, model_type: str = None) -> str:
         """创建识别会话"""
@@ -114,8 +142,15 @@ class MultiModelASRService:
         model_instance = session["model_instance"]
         model_session_id = session["model_session_id"]
         
-        # 处理音频
-        partial_result = model_instance.process_audio(model_session_id, audio_data)
+        # 在统一线程池中执行阻塞的音频处理
+        # 这样可以将所有模型的计算密集型任务从事件循环中移出
+        loop = asyncio.get_running_loop()
+        partial_result = await loop.run_in_executor(
+            self.executor,
+            model_instance.process_audio,
+            model_session_id,
+            audio_data
+        )
         
         # 获取会话结果
         results = model_instance.get_final_results(model_session_id)
@@ -183,6 +218,9 @@ class MultiModelASRService:
             except Exception as e:
                 logger.error(f"关闭会话 {session_id} 失败: {e}")
         
+        # 关闭统一线程池
+        self.executor.shutdown(wait=True)
+        
         # 清理模型资源
         for model_name, model_instance in self.models.items():
             if model_instance:
@@ -218,13 +256,16 @@ app = FastAPI(
 )
 
 @app.websocket("/ws/asr")
-async def websocket_endpoint(websocket: WebSocket, model_type: str = "paraformer"):
+async def websocket_endpoint(websocket: WebSocket, model_type: str = "paraformer_streaming"):
     """WebSocket端点 - 实时音频流处理"""
     await websocket.accept()
     
     try:
         # 创建会话
         session_id = await asr_service.create_session(model_type)
+        last_partial = ""
+        last_results_len = 0
+        last_final_text = ""
         await websocket.send_json({
             "type": "session_created",
             "session_id": session_id,
@@ -236,6 +277,12 @@ async def websocket_endpoint(websocket: WebSocket, model_type: str = "paraformer
         while True:
             # 接收音频数据
             data = await websocket.receive_bytes()
+            print(f"DEBUG: WebSocket received {len(data)} bytes") # Keep this commented to avoid flood, user can uncomment if needed, or I should enable it? 
+            # User asked "to see where the problem is", so maybe flooding is okay for a short debug session.
+            # But high frequency logs might lag the terminal.
+            # I'll enable it but maybe limit it or just enable it.
+            if len(data) > 0:
+                 pass # print(f"DEBUG: WebSocket received {len(data)} bytes") 
             
             if not data:
                 continue
@@ -243,19 +290,30 @@ async def websocket_endpoint(websocket: WebSocket, model_type: str = "paraformer
             # 处理音频
             result = await asr_service.process_audio(session_id, data)
             
-            # 发送部分结果
-            if result["partial_result"]:
+            partial = result.get("partial_result")
+            if partial:
+                 print(f"DEBUG: Got partial from model: {partial}")
+
+            if partial and partial != last_partial:
+                print(f"DEBUG: Sending partial result: {partial}")
                 await websocket.send_json({
                     "type": "partial_result",
-                    "text": result["partial_result"]
+                    "text": partial
                 })
-            
-            # 发送最终结果
-            if result["last_result"]:
-                await websocket.send_json({
-                    "type": "final_result",
-                    "text": result["last_result"]
-                })
+                last_partial = partial
+
+            finals = result.get("final_results", [])
+            if isinstance(finals, list) and len(finals) > last_results_len:
+                for i in range(last_results_len, len(finals)):
+                    text = finals[i]
+                    if text and text != last_final_text:
+                        print(f"DEBUG: Sending final result: {text}")
+                        await websocket.send_json({
+                            "type": "final_result",
+                            "text": text
+                        })
+                        last_final_text = text
+                last_results_len = len(finals)
                 
     except WebSocketDisconnect:
         logger.info(f"WebSocket连接断开: {session_id}")

@@ -7,7 +7,7 @@
 - CPU 或 GPU（可选）。若使用 GPU，请安装与你 CUDA 版本匹配的 `torch` 轮子。
 
 ## 本地模型准备
-- Vosk：将中文模型解压到 `model/vosk-model-small-cn-0.22`
+ - Vosk：将中文模型解压到 `model/vosk-model-small-cn-0.22`（或在 `config/settings.py` 设置 `vosk_model_path`）
 - Whisper：如使用本地权重，设置 `settings.whisper_model_path`
 - Paraformer（本地目录结构需包含下列文件）：
   - `model/speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch/`
@@ -55,4 +55,3 @@
 - `ImportError: cannot import name 'LargeList' from 'datasets'`：固定 `modelscope==1.11.1` 与 `datasets==2.14.5`。
 - `pyarrow / numpy` ABI 报错：将 `numpy` 固定到 `<2`（如 `1.26.4`）并配套 `pyarrow==14.0.2`。
 - 前端无识别结果：确保以二进制帧发送 `int16` PCM，分片累计约 `>32KB` 触发一次识别；或降低触发阈值。
-
