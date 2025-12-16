@@ -2,3 +2,4 @@
 /model/vosk-model-cn-0.22/
 /model/whisper-base/
 /model/*
+/.venv/
