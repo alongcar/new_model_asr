@@ -1,0 +1,22 @@
+# 忽略模型目录（运行时挂载）
+model/
+models/
+
+# 忽略虚拟环境
+venv/
+.venv/
+env/
+
+# 忽略缓存和临时文件
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.log
+.idea/
+.vscode/
+.git/
+.gitignore
+Dockerfile
+README.md

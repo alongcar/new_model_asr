@@ -16,11 +16,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.responses import HTMLResponse
 
 from config.settings import settings
-from asr_models.vosk_model import VoskModel
-from asr_models.whisper_model import WhisperModel
-from asr_models.paraformer_model import ParaformerModel
-from asr_models.sense_voice_model import SenseVoiceModel
-from asr_models.paraformer_streaming_model import ParaformerStreamingModel
+import importlib
 
 # 配置日志
 logging.basicConfig(
@@ -42,16 +38,32 @@ class MultiModelASRService:
     async def initialize(self):
         """初始化所有模型"""
         logger.info("初始化语音识别模型...")
+        VoskModel = None
+        SenseVoiceModel = None
+        ParaformerStreamingModel = None
+        try:
+            VoskModel = importlib.import_module("asr_models.vosk_model").VoskModel
+        except Exception as e:
+            logger.warning(f"Vosk模块导入失败: {e}")
+        try:
+            SenseVoiceModel = importlib.import_module("asr_models.sense_voice_model").SenseVoiceModel
+        except Exception as e:
+            logger.warning(f"SenseVoice模块导入失败: {e}")
+        try:
+            ParaformerStreamingModel = importlib.import_module("asr_models.paraformer_streaming_model").ParaformerStreamingModel
+        except Exception as e:
+            logger.warning(f"ParaformerStreaming模块导入失败: {e}")
         
         # 初始化Vosk模型
         try:
-            self.models["vosk"] = VoskModel(
-                model_path=settings.vosk_model_path,
-                sample_rate=settings.sample_rate,
-                hotwords=settings.hotwords
-            )
-            self.models["vosk"].load_model()
-            logger.info("Vosk模型初始化完成")
+            if VoskModel is not None:
+                self.models["vosk"] = VoskModel(
+                    model_path=settings.vosk_model_path,
+                    sample_rate=settings.sample_rate,
+                    hotwords=settings.hotwords
+                )
+                self.models["vosk"].load_model()
+                logger.info("Vosk模型初始化完成")
         except Exception as e:
             logger.error(f"Vosk模型初始化失败: {e}")
             self.models["vosk"] = None
@@ -84,25 +96,27 @@ class MultiModelASRService:
 
         # 初始化SenseVoice模型
         try:
-            self.models["sense_voice"] = SenseVoiceModel(
-                model_path=settings.sense_voice_model_path,
-                sample_rate=settings.sample_rate,
-                hotwords=settings.hotwords
-            )
-            self.models["sense_voice"].load_model()
-            logger.info("SenseVoice模型初始化完成")
+            if SenseVoiceModel is not None:
+                self.models["sense_voice"] = SenseVoiceModel(
+                    model_path=settings.sense_voice_model_path,
+                    sample_rate=settings.sample_rate,
+                    hotwords=settings.hotwords
+                )
+                self.models["sense_voice"].load_model()
+                logger.info("SenseVoice模型初始化完成")
         except Exception as e:
             logger.warning(f"SenseVoice模型初始化失败: {e}")
 
         # 初始化Paraformer Streaming模型
         try:
-            self.models["paraformer_streaming"] = ParaformerStreamingModel(
-                model_path=settings.paraformer_streaming_model_path,
-                sample_rate=settings.sample_rate,
-                hotwords=settings.hotwords
-            )
-            self.models["paraformer_streaming"].load_model()
-            logger.info("Paraformer Streaming模型初始化完成")
+            if ParaformerStreamingModel is not None:
+                self.models["paraformer_streaming"] = ParaformerStreamingModel(
+                    model_path=settings.paraformer_streaming_model_path,
+                    sample_rate=settings.sample_rate,
+                    hotwords=settings.hotwords
+                )
+                self.models["paraformer_streaming"].load_model()
+                logger.info("Paraformer Streaming模型初始化完成")
         except Exception as e:
             logger.warning(f"Paraformer Streaming模型初始化失败: {e}")
         #     self.models["paraformer"] = None
@@ -114,6 +128,8 @@ class MultiModelASRService:
         
         if model_type not in self.models or self.models[model_type] is None:
             raise HTTPException(status_code=400, detail=f"模型 {model_type} 不可用")
+        if not getattr(self.models[model_type], "is_loaded", False):
+            raise HTTPException(status_code=400, detail=f"模型 {model_type} 未加载")
         
         session_id = str(uuid.uuid4())
         model_instance = self.models[model_type]

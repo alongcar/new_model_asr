@@ -1,6 +1,7 @@
 import os
 from typing import List, Optional
 from pydantic_settings import BaseSettings
+from pydantic import Field
 
 
 class Settings(BaseSettings):
@@ -13,11 +14,11 @@ class Settings(BaseSettings):
 
     # 模型路径配置
     vosk_model_path: str = "model/vosk-model-small-cn-0.22"
-    whisper_model_size: str = "base"  # 改为模型名称：tiny, base, small, medium, large
+    whisper_model_size: str = "small"  # 改为模型名称：tiny, base, small, medium, large
     whisper_model_path: str = "model/whisper-base/small.pt"  # 新增：模型文件存放路径
     paraformer_model_path: str = "model/speech_seaco_paraformer_large_asr_nat-zh-cn-16k-common-vocab8404-pytorch"
     sense_voice_model_path: str = "model/SenseVoiceSmall"
-    paraformer_streaming_model_path: str = "model/paraformer-streaming"
+    paraformer_streaming_model_path: str = "model/paraformer-zh-streaming"
 
     # 音频配置
     sample_rate: float = 16000.0
@@ -35,7 +36,7 @@ class Settings(BaseSettings):
     ]
 
     # 默认模型
-    default_model: str = "vosk"  # vosk 或 whisper
+    default_model: str = Field(default="vosk", env="DEFAULT_MODEL")  # vosk / whisper / paraformer_streaming
 
     class Config:
         env_file = ".env"

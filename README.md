@@ -39,6 +39,82 @@
   - `ws://localhost:8000/ws/asr?model_type=paraformer`
   - 二进制帧发送原始 `int16` PCM 数据，采样率与 `settings.sample_rate` 一致（默认 16k）
 
+## Docker 部署
+1. **构建镜像**
+   ```bash
+   docker build -t asr-service:v1 .
+   ```
+
+2. **运行容器**
+   > 注意：需要将本地模型目录挂载到容器内的 `/app/model` 路径
+   ```bash
+   docker run -d \
+     -p 8000:8000 \
+     -v d:/jhj/zhizhu/digital_man/asr_py10/model:/app/model \
+     --name asr-service \
+     asr-service:v1
+   ```
+
+## GPU 部署
+- 前置条件：宿主机安装 NVIDIA 显卡驱动（>=525）与 NVIDIA Container Toolkit（`--gpus` 支持）。
+- 依赖选择：
+  - 将 `requirements.txt` 中的 `torch` 修改为 `torch==2.1.1+cu121`。
+  - 构建时使用 CUDA 索引：`--extra-index-url https://download.pytorch.org/whl/cu121`。
+- 构建镜像（GPU 版）：
+  ```bash
+  docker build -t asr-service:gpu .
+  ```
+- 运行容器（启用 GPU）：
+  ```bash
+  docker run -d --gpus all \
+    -p 8000:8000 \
+    -v d:/jhj/zhizhu/digital_man/asr_py10/model:/app/model \
+    --name asr-service-gpu \
+    asr-service:gpu
+  ```
+- GPU 验证：
+  ```bash
+  docker exec -it asr-service-gpu python -c "import torch; print(torch.cuda.is_available(), torch.version.cuda)"
+  ```
+- 可选基础镜像（更完整的 CUDA 运行环境）：
+  ```Dockerfile
+  FROM nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
+  RUN apt-get update && apt-get install -y --no-install-recommends \
+      python3 python3-pip libsndfile1 ffmpeg git build-essential \
+      && rm -rf /var/lib/apt/lists/*
+  COPY requirements.txt .
+  RUN pip3 install --no-cache-dir --default-timeout=1000 -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu121
+  COPY . /app
+  WORKDIR /app
+  EXPOSE 8000
+  CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+  ```
+
+## 常见问题
+### Docker 构建网络超时
+如果遇到 `failed to resolve source metadata` 或 `content size of zero` 错误，通常是 Docker Hub 访问受限导致。
+请在 Docker Desktop 设置中配置镜像加速：
+1. 打开 Docker Desktop -> Settings -> Docker Engine
+2. 添加 `registry-mirrors` 配置：
+```json
+{
+  "builder": {
+    "gc": {
+      "defaultKeepStorage": "20GB",
+      "enabled": true
+    }
+  },
+  "experimental": false,
+  "registry-mirrors": [
+    "https://docker.m.daocloud.io",
+    "https://huecker.io",
+    "https://dockerhub.timeweb.cloud",
+    "https://noohub.ru"
+  ]
+}
+```
+3. 点击 "Apply & restart"
+
 ## 配置说明
 - 修改 `config/settings.py` 控制：
   - `default_model`（默认识别模型：`vosk`/`whisper`/`paraformer`）

@@ -4,7 +4,11 @@ uvicorn==0.24.0
 websockets==12.0
 vosk
 openai-whisper
-torch>=2.1.1
+torch==2.1.1+cpu
+torchaudio==2.1.1+cpu
+onnxruntime
+soundfile
+librosa
 numpy==1.26.4
 scipy>=1.10.0
 python-multipart>=0.0.6

@@ -22,8 +22,8 @@ class ParaformerStreamingModel(BaseASRModel):
         self.sessions: Dict[str, Dict] = {}
         self.session_lock = threading.Lock()
         self.model = None
-        # 默认使用 paraformer-zh-streaming
-        self.model_name_or_path = model_path if os.path.exists(model_path) else "paraformer-zh-streaming"
+        # 仅使用本地模型路径（离线）
+        self.model_name_or_path = model_path
 
     def load_model(self):
         if self.is_loaded:
@@ -31,6 +31,9 @@ class ParaformerStreamingModel(BaseASRModel):
 
         if AutoModel is None:
             raise ImportError("Please install funasr to use ParaformerStreamingModel")
+
+        if not os.path.exists(self.model_name_or_path):
+            raise FileNotFoundError(self.model_name_or_path)
 
         logger.info(f"加载Paraformer Streaming模型: {self.model_name_or_path}")
         try:
